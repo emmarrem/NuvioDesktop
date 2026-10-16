@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.compose.rememberLifecycleOwner
 import com.nuvio.app.core.ui.LocalScreenActive
+import com.nuvio.app.core.ui.LocalWindowActive
 
 @Composable
 internal fun RootTabHost(
@@ -34,7 +35,7 @@ internal fun RootTabHost(
     content: @Composable (AppScreenTab) -> Unit,
 ) {
     val parentLifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    val hostActive = active && parentLifecycleState.isAtLeast(Lifecycle.State.STARTED)
+    val hostActive = active && LocalWindowActive.current && parentLifecycleState.isAtLeast(Lifecycle.State.STARTED)
     val focusManager = LocalFocusManager.current
     DisposableEffect(selectedTab, hostActive, profileId) {
         onDispose { focusManager.clearFocus(force = true) }

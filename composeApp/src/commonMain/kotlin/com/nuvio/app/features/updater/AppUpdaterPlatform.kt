@@ -13,6 +13,7 @@ data class AppUpdateAssetSelector(
     val contentTypes: List<String> = emptyList(),
     val preferredNameFragments: List<String> = emptyList(),
     val fallbackNameFragments: List<String> = emptyList(),
+    val requiredNameFragments: List<String> = emptyList(),
 )
 
 expect object AppUpdaterPlatform {

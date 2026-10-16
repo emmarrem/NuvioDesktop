@@ -8,6 +8,7 @@
 #include <shlobj.h>
 #include <wrl.h>
 #include <WebView2.h>
+#include "com_callback.h"
 #include <jni.h>
 
 #include <algorithm>
@@ -30,7 +31,6 @@
 #include <unordered_map>
 #include <vector>
 
-using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 
 extern "C" {

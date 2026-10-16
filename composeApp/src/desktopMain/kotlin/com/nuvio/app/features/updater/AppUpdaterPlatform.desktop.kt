@@ -197,6 +197,7 @@ private enum class DesktopUpdaterOs {
                 fileExtensions = listOf(".msi", ".exe"),
                 preferredNameFragments = archFragments + listOf("windows", "win"),
                 fallbackNameFragments = listOf("universal", "all"),
+                requiredNameFragments = if ("arm64" in archFragments) archFragments else emptyList(),
             )
             MACOS -> AppUpdateAssetSelector(
                 fileExtensions = listOf(".dmg", ".pkg"),

@@ -34,7 +34,9 @@ internal object DesktopEngineLibrary {
     private fun requireSupportedArchitecture(platform: DesktopHostOs) {
         if (platform == DesktopHostOs.MACOS) return
         val architecture = System.getProperty("os.arch").orEmpty().lowercase(Locale.ROOT)
-        if (architecture !in setOf("amd64", "x86_64", "x64")) {
+        val supported = architecture in setOf("amd64", "x86_64", "x64") ||
+            (platform == DesktopHostOs.WINDOWS && architecture in setOf("arm64", "aarch64"))
+        if (!supported) {
             throw P2pStreamingException("P2P streaming is not available for $architecture")
         }
     }
@@ -45,11 +47,18 @@ internal object DesktopEngineLibrary {
             ?.let { File(it, "native/$directory/$name") }
             ?.takeIf(File::isFile)
 
-    private fun sourceLibrary(directory: String, name: String): File? =
-        listOf(
-            File("src/desktopMain/native/$directory/engine/$name"),
-            File("composeApp/src/desktopMain/native/$directory/engine/$name"),
+    private fun sourceLibrary(directory: String, name: String): File? {
+        val architecture = System.getProperty("os.arch").orEmpty().lowercase(Locale.ROOT)
+        val engineDirectory = if (directory == "windows" && architecture in setOf("arm64", "aarch64")) {
+            "engine/arm64"
+        } else {
+            "engine"
+        }
+        return listOf(
+            File("src/desktopMain/native/$directory/$engineDirectory/$name"),
+            File("composeApp/src/desktopMain/native/$directory/$engineDirectory/$name"),
         ).firstOrNull(File::isFile)
+    }
 
     private fun extractedLibrary(directory: String, name: String): File? {
         val resource = DesktopEngineLibrary::class.java

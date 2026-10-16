@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.FloatingNavigationItem
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.LocalWindowActive
 import com.nuvio.app.core.ui.detectJellyTabGestures
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.visualNavIndex
@@ -56,8 +57,9 @@ internal fun JellyNavigationBar(
     LaunchedEffect(visualSelectedIndex, items.size) {
         motion.select(visualSelectedIndex)
     }
-    LaunchedEffect(motion.running) {
-        if (!motion.running) return@LaunchedEffect
+    val windowActive = LocalWindowActive.current
+    LaunchedEffect(motion.running, windowActive) {
+        if (!motion.running || !windowActive) return@LaunchedEffect
         var previous = withFrameNanos { it }
         while (motion.running) {
             withFrameNanos { now ->

@@ -213,21 +213,24 @@ fun main(args: Array<String>) {
                 }
             }
 
-            if (smokePlayerUrl == null) {
-                ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
-                    App()
-                }
-            } else {
-                // The player surface reads LocalNuvioPlatformDensity, which only
-                // NuvioTheme provides — the bare smoke harness must supply it too.
-                NuvioTheme {
-                    PlatformPlayerSurface(
-                        sourceUrl = smokePlayerUrl,
-                        modifier = Modifier.fillMaxSize(),
-                        onControllerReady = {},
-                        onSnapshot = {},
-                        onError = {},
-                    )
+            DesktopScrollSettings {
+                DesktopWindowActivity(window, minimized = windowState.isMinimized) {
+                    if (smokePlayerUrl == null) {
+                        ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
+                            App()
+                        }
+                    } else {
+                        // The smoke player also needs the theme's platform density.
+                        NuvioTheme {
+                            PlatformPlayerSurface(
+                                sourceUrl = smokePlayerUrl,
+                                modifier = Modifier.fillMaxSize(),
+                                onControllerReady = {},
+                                onSnapshot = {},
+                                onError = {},
+                            )
+                        }
+                    }
                 }
             }
         }

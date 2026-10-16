@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.accentBrush
+import com.nuvio.app.core.ui.LocalWindowActive
 import com.nuvio.app.core.ui.gradientMask
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
@@ -55,6 +56,10 @@ internal fun LibraryDownloadsButton(onClick: () -> Unit) {
 
 @Composable
 private fun FlowingDownloadIcon() {
+    if (!LocalWindowActive.current) {
+        DownloadIcon(tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
     val palette = MaterialTheme.themePalette
     val dimAlpha = MaterialTheme.nuvio.opacity.overlayLight
     val colors = palette.accentGradient.takeIf { it.size >= 2 }

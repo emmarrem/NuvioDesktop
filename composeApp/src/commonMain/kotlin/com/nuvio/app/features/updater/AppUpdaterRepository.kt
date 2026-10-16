@@ -43,8 +43,11 @@ internal fun selectBestUpdateAsset(
     selector: AppUpdateAssetSelector,
 ): AppUpdateAssetCandidate? {
     val updateAssets = assets.filter { asset ->
-        selector.fileExtensions.any { extension -> asset.name.endsWith(extension, ignoreCase = true) } ||
-            selector.contentTypes.any { it.equals(asset.contentType, ignoreCase = true) }
+        (selector.fileExtensions.any { extension -> asset.name.endsWith(extension, ignoreCase = true) } ||
+            selector.contentTypes.any { it.equals(asset.contentType, ignoreCase = true) }) &&
+            (selector.requiredNameFragments.isEmpty() || selector.requiredNameFragments.any {
+                asset.name.contains(it, ignoreCase = true)
+            })
     }
     if (updateAssets.isEmpty()) return null
     if (updateAssets.size == 1) return updateAssets.first()

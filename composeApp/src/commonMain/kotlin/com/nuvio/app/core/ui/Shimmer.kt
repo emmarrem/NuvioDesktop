@@ -68,79 +68,276 @@ internal fun rememberSkeletonProgress(): State<Float> {
 
 @Composable
 private fun SkeletonAnimationConsumer(animation: SkeletonAnimation?) {
-    val active = LocalScreenActive.current
+    val active = LocalScreenActive.current && LocalWindowActive.current
     DisposableEffect(animation, active) {
         if (animation != null && active) animation.consumers++
         onDispose {
-            if (animation != null && active) animation.consumers--
+            if (animation != null &…47329 tokens truncated…Color, &borderColor, sizeof(borderColor));
+        COLORREF captionColor = RGB(0, 0, 0);
+        setDwmWindowAttribute(window, kDwmwaCaptionColor, &captionColor, sizeof(captionColor));
+    } else {
+        style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX);
+        WNDPROC oldProc = reinterpret_cast<WNDPROC>(GetPropW(window, L"NuvioPipOldProc"));
+        if (oldProc) {
+            SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(oldProc));
+            RemovePropW(window, L"NuvioPipOldProc");
         }
+        RemovePropW(window, L"NuvioPipPlayer");
+        RemovePropW(window, L"NuvioPipRatio");
+    }
+    SetWindowLongPtrW(window, GWL_STYLE, style);
+    SetWindowPos(window, nullptr, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setWindowAspectRatio(
+    JNIEnv *, jobject, jlong windowHwnd, jfloat ratio
+) {
+    HWND window = (HWND)(intptr_t)windowHwnd;
+    if (!window || !IsWindow(window)) return;
+    if (ratio <= 0.05f) return;
+    uintptr_t ratioInt = static_cast<uintptr_t>(std::round(ratio * 10000.0f));
+    SetPropW(window, L"NuvioPipRatio", reinterpret_cast<HANDLE>(ratioInt));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_layoutNativeSubviews(
+    JNIEnv *, jobject, jlong handle
+) {
+    auto player = playerFromHandle(handle);
+    if (player) {
+        player->layoutNativeSubviewsAsync();
     }
 }
 
-@Composable
-internal fun Modifier.skeleton(
-    shape: Shape = RoundedCornerShape(6.dp),
-): Modifier {
-    val progress = rememberSkeletonProgress()
-    val base = MaterialTheme.nuvio.colors.skeleton
-    val highlight = MaterialTheme.nuvio.colors.shimmer
-    var rootWidth by remember { mutableFloatStateOf(0f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-
-    return clip(shape)
-        .onGloballyPositioned { coordinates ->
-            rootWidth = coordinates.findRootCoordinates().size.width.toFloat()
-            offsetX = coordinates.positionInRoot().x
-        }
-        .drawWithCache {
-            val width = rootWidth.takeIf { it > 0f } ?: size.width
-            val bandWidth = width * 0.7f
-            val shoulder = lerp(base, highlight, 0.35f)
-            val stops = arrayOf(
-                0f to base,
-                0.25f to shoulder,
-                0.5f to highlight,
-                0.75f to shoulder,
-                1f to base,
-            )
-            onDrawBehind {
-                val start = (width + bandWidth) * progress.value - bandWidth - offsetX
-                drawRect(
-                    Brush.linearGradient(
-                        colorStops = stops,
-                        start = Offset(start, 0f),
-                        end = Offset(start + bandWidth, 0f),
-                    ),
-                )
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_reparentSurfaceNative(JNIEnv *, jobject, jlong handle, jlong hostViewPtr) {
+    auto player = playerFromHandle(handle);
+    if (player) {
+        HWND host = (HWND)(intptr_t)hostViewPtr;
+        if (host && IsWindow(host)) {
+            HWND rootWindow = GetAncestor(host, GA_ROOT);
+            if (rootWindow && IsWindow(rootWindow) && GetPropW(rootWindow, L"NuvioPipOldProc")) {
+                SetPropW(rootWindow, L"NuvioPipPlayer", reinterpret_cast<HANDLE>(static_cast<intptr_t>(handle)));
             }
         }
+        player->reparentSurface(host);
+    }
 }
 
-@Composable
-internal fun Modifier.shimmer(active: Boolean = true): Modifier {
-    if (!active) return this
-    val progress = rememberSkeletonProgress()
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setPaused(JNIEnv *, jobject, jlong handle, jboolean paused) {
+    auto player = playerFromHandle(handle);
+    if (player) player->setPaused(paused == JNI_TRUE);
+}
 
-    return graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-        .drawWithCache {
-            val bandWidth = size.width * 0.8f
-            val dim = Color.Black.copy(alpha = 0.35f)
-            val stops = arrayOf(
-                0f to dim,
-                0.5f to Color.Black,
-                1f to dim,
-            )
-            onDrawWithContent {
-                drawContent()
-                val start = (size.width + bandWidth) * progress.value - bandWidth
-                drawRect(
-                    brush = Brush.linearGradient(
-                        colorStops = stops,
-                        start = Offset(start, 0f),
-                        end = Offset(start + bandWidth, 0f),
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            }
-        }
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_seekTo(JNIEnv *, jobject, jlong handle, jlong positionMs) {
+    auto player = playerFromHandle(handle);
+    if (player) player->seekToMilliseconds(positionMs);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_seekBy(JNIEnv *, jobject, jlong handle, jlong offsetMs) {
+    auto player = playerFromHandle(handle);
+    if (player) player->seekByMilliseconds(offsetMs);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setSpeed(JNIEnv *, jobject, jlong handle, jfloat speed) {
+    auto player = playerFromHandle(handle);
+    if (player) player->setSpeed(speed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_adjustVolume(JNIEnv *, jobject, jlong handle, jfloat delta) {
+    auto player = playerFromHandle(handle);
+    if (player) player->adjustVolume(delta);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setVolume(JNIEnv *, jobject, jlong handle, jfloat level) {
+    auto player = playerFromHandle(handle);
+    if (player) player->setVolume(level);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_durationMs(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player ? player->durationMs() : 0;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_positionMs(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player ? player->positionMs() : 0;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_bufferedPositionMs(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player ? player->bufferedPositionMs() : 0;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_isLoading(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player && player->isLoading() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_isEnded(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player && player->isEnded() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_isPaused(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return !player || player->isPaused() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_speed(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player ? (jfloat)player->speed() : 1.0f;
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_volume(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return player ? (jfloat)player->volume() : 1.0f;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setResizeMode(JNIEnv *, jobject, jlong handle, jint mode) {
+    auto player = playerFromHandle(handle);
+    if (player) player->setResizeMode(mode);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_audioTracksJson(JNIEnv *env, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return newJavaStringUtf8(env, player ? player->audioTracksJson() : "[]");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_subtitleTracksJson(JNIEnv *env, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    return newJavaStringUtf8(env, player ? player->subtitleTracksJson() : "[]");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_selectAudioTrack(JNIEnv *, jobject, jlong handle, jint trackId) {
+    auto player = playerFromHandle(handle);
+    if (player) player->selectAudioTrackId(trackId);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_selectSubtitleTrack(JNIEnv *, jobject, jlong handle, jint trackId) {
+    auto player = playerFromHandle(handle);
+    if (player) player->selectSubtitleTrackId(trackId);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_addSubtitleUrl(JNIEnv *env, jobject, jlong handle, jstring url) {
+    auto player = playerFromHandle(handle);
+    if (player) player->addSubtitleUrl(jstringToUtf8(env, url));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_clearExternalSubtitles(JNIEnv *, jobject, jlong handle) {
+    auto player = playerFromHandle(handle);
+    if (player) player->removeExternalSubtitles();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_clearExternalSubtitlesAndSelect(JNIEnv *, jobject, jlong handle, jint trackId) {
+    auto player = playerFromHandle(handle);
+    if (player) player->removeExternalSubtitlesAndSelect(trackId);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_applyWindowChrome(
+    JNIEnv *,
+    jobject,
+    jlong windowHwnd,
+    jboolean darkMode,
+    jint captionColorRgb,
+    jint borderColorRgb,
+    jint textColorRgb
+) {
+    HWND hwnd = (HWND)(intptr_t)windowHwnd;
+    applyDwmWindowChrome(
+        hwnd,
+        darkMode == JNI_TRUE,
+        rgbIntToColorRef(captionColorRgb),
+        rgbIntToColorRef(borderColorRgb),
+        rgbIntToColorRef(textColorRgb)
+    );
+
+    // The window's default class brush is white, so any region Windows erases before Skia
+    // repaints it flashes white. Erase to black instead; against the near-black UI it is
+    // invisible even if a repaint lags.
+    if (hwnd && IsWindow(hwnd)) {
+        SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(BLACK_BRUSH));
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setWindowBorderlessFullscreen(
+    JNIEnv *,
+    jobject,
+    jlong windowHwnd,
+    jboolean fullscreen,
+    jint x,
+    jint y,
+    jint width,
+    jint height
+) {
+    setBorderlessFullscreen(
+        (HWND)(intptr_t)windowHwnd,
+        fullscreen == JNI_TRUE,
+        x,
+        y,
+        width,
+        height
+    );
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_setSubtitleDelayMs(JNIEnv *, jobject, jlong handle, jint delayMs) {
+    auto player = playerFromHandle(handle);
+    if (player) player->setSubtitleDelayMs(delayMs);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_nuvio_app_features_player_desktop_NativePlayerBridge_applySubtitleStyle(
+    JNIEnv *env,
+    jobject,
+    jlong handle,
+    jstring textColor,
+    jstring backgroundColor,
+    jstring outlineColor,
+    jfloat outlineSize,
+    jboolean bold,
+    jfloat fontSize,
+    jint subPos,
+    jboolean useLibass,
+    jboolean stripSdh
+) {
+    auto player = playerFromHandle(handle);
+    if (!player) return;
+    player->applySubtitleStyle(
+        jstringToUtf8(env, textColor),
+        jstringToUtf8(env, backgroundColor),
+        jstringToUtf8(env, outlineColor),
+        outlineSize,
+        bold == JNI_TRUE,
+        fontSize,
+        subPos,
+        useLibass == JNI_TRUE,
+        stripSdh == JNI_TRUE
+    );
 }

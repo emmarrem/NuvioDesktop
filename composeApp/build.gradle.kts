@@ -1,5 +1,6 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
@@ -22,7 +23,12 @@ import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTes
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.RandomAccessFile
+import java.lang.Short as JavaShort
 import java.util.Properties
+import java.util.jar.JarOutputStream
+import java.util.jar.Manifest
+import java.security.MessageDigest
 import javax.inject.Inject
 
 abstract class GenerateRuntimeConfigsTask : DefaultTask() {
@@ -720,16 +726,26 @@ val buildLinuxPlayerBridge = tasks.register<Exec>("buildLinuxPlayerBridge") {
 
 val windowsPlayerBridgeArch = when (System.getProperty("os.arch").lowercase()) {
     "aarch64", "arm64" -> "arm64"
-    "x86" -> "x86"
-    else -> "x64"
+    "amd64", "x86_64", "x64" -> "x64"
+    else -> if (isWindowsHost) error("Unsupported Windows JVM architecture") else "x64"
 }
+val windowsNativeRoot = "native/windows/$windowsPlayerBridgeArch"
 val windowsPlayerBridgeSource = layout.projectDirectory.file("src/desktopMain/native/windows/player_bridge.cpp")
-val windowsPlayerBridgeOutput = layout.buildDirectory.file("native/windows/player_bridge.dll")
-val windowsPlayerBridgeImportLib = layout.buildDirectory.file("native/windows/player_bridge.lib")
-val windowsPlayerBridgePdb = layout.buildDirectory.file("native/windows/player_bridge.pdb")
-val windowsPlayerBridgeObj = layout.buildDirectory.file("native/windows/player_bridge.obj")
-val windowsPlayerBridgeScript = layout.buildDirectory.file("native/windows/build-player-bridge.bat")
-val windowsPlayerRuntimeOutput = layout.buildDirectory.dir("native/windows-runtime")
+val windowsPlayerBridgeOutput = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.dll")
+val windowsPlayerBridgeImportLib = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.lib")
+val windowsPlayerBridgePdb = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.pdb")
+val windowsPlayerBridgeObj = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.obj")
+val windowsPlayerBridgeScript = layout.buildDirectory.file("$windowsNativeRoot/build-player-bridge.bat")
+val windowsPlayerRuntimeOutput = layout.buildDirectory.dir("native/windows-runtime/$windowsPlayerBridgeArch")
+val windowsClang = providers.gradleProperty("nuvio.windows.clang.path").orNull?.takeIf(String::isNotBlank)
+val windowsQuickJsDll = providers.gradleProperty("nuvio.windows.quickjs.dll").orNull
+    ?.takeIf(String::isNotBlank)?.let(::File)
+val windowsEngineDll = providers.gradleProperty("nuvio.windows.engine.dll").orNull
+    ?.takeIf(String::isNotBlank)?.let(::File)
+    ?: layout.projectDirectory.file(
+        "src/desktopMain/native/windows/engine/" +
+            (if (windowsPlayerBridgeArch == "arm64") "arm64/" else "") + "nuvio_engine.dll",
+    ).asFile
 if (isWindowsHost) {
     windowsPlayerBridgeOutput.get().asFile.parentFile.mkdirs()
 }
@@ -742,7 +758,9 @@ val windowsWebView2IncludeDir = File(windowsWebView2Root, "build/native/include"
 val windowsWebView2NativeDir = File(windowsWebView2Root, "build/native/$windowsPlayerBridgeArch")
 val windowsWebView2LoaderLib = File(windowsWebView2NativeDir, "WebView2Loader.dll.lib")
 val windowsWebView2LoaderDll = File(windowsWebView2NativeDir, "WebView2Loader.dll")
-val bundledWindowsLibmpvRuntimeDir = layout.projectDirectory.dir("src/desktopMain/native/windows/runtime").asFile
+val bundledWindowsLibmpvRuntimeDir = layout.projectDirectory.dir(
+    "src/desktopMain/native/windows/runtime" + if (windowsPlayerBridgeArch == "arm64") "/arm64" else "",
+).asFile
 val windowsLibmpvRuntimeDirOverride = providers.gradleProperty("nuvio.windows.libmpv.runtimeDir").orNull
     ?.takeIf { it.isNotBlank() }
     ?.let(::File)
@@ -753,10 +771,10 @@ val windowsLibmpvDllOverride = providers.gradleProperty("nuvio.windows.libmpv.dl
     ?.let(::File)
 val windowsLibmpvDll = windowsLibmpvDllOverride
     ?: windowsLibmpvRuntimeDir?.resolve("libmpv-2.dll")
-    ?: listOf(
+    ?: (if (windowsPlayerBridgeArch == "x64") listOf(
         File("C:/msys64/ucrt64/bin/libmpv-2.dll"),
         File("C:/msys64/mingw64/bin/libmpv-2.dll"),
-    ).firstOrNull(File::exists)
+    ) else emptyList()).firstOrNull(File::exists)
 val windowsCppRuntimeDllNames = listOf(
     "vcruntime140.dll",
     "vcruntime140_1.dll",
@@ -767,7 +785,7 @@ val windowsCppRuntimeDllNames = listOf(
     "msvcp140_codecvt_ids.dll",
     "concrt140.dll",
 )
-val windowsCppRuntimeDlls = if (isWindowsHost) {
+val windowsCppRuntimeDlls = if (isWindowsHost && windowsClang == null) {
     windowsCppRuntimeDllNames
         .map { File("C:/Windows/System32", it) }
         .filter(File::exists)
@@ -792,7 +810,18 @@ val missingWindowsPlayerBridgeMessage = """
     Install the Microsoft.Web.WebView2 NuGet package or pass -Pnuvio.webview2.dir=C:/path/to/microsoft.web.webview2/version.
     libmpv is loaded at runtime; pass -Pnuvio.windows.libmpv.runtimeDir=C:/path/to/mpv-dlls to bundle it.
 """.trimIndent()
-val windowsPlayerBridgeCommand = if (missingWindowsPlayerBridgeInputs.isNotEmpty()) {
+val windowsPlayerBridgeCommand = if (windowsClang != null) {
+    val javaInclude = File(windowsPlayerBridgeJavaHome, "include")
+    listOf(
+        windowsClang, "-std=c++17", "-shared", "-O2", "-static",
+        "-DUNICODE", "-D_UNICODE", "-DNOMINMAX", "-DWIN32_LEAN_AND_MEAN",
+        "-I${javaInclude.absolutePath}", "-I${javaInclude.resolve("win32").absolutePath}",
+        "-I${windowsWebView2IncludeDir.absolutePath}",
+        windowsPlayerBridgeSource.asFile.absolutePath, windowsWebView2LoaderLib.absolutePath,
+        "-lole32", "-luuid", "-luser32", "-lgdi32", "-ldwmapi", "-lshell32", "-ld3d11",
+        "-o", windowsPlayerBridgeOutput.get().asFile.absolutePath,
+    )
+} else if (missingWindowsPlayerBridgeInputs.isNotEmpty()) {
     listOf(
         "cmd",
         "/c",
@@ -880,6 +909,9 @@ val buildWindowsPlayerBridge = tasks.register<Exec>("buildWindowsPlayerBridge") 
     notCompatibleWithConfigurationCache("Builds a host-local player bridge against WebView2 and libmpv for Windows.")
     enabled = isWindowsHost
     inputs.file(windowsPlayerBridgeSource)
+    inputs.file(layout.projectDirectory.file("src/desktopMain/native/windows/com_callback.h"))
+    inputs.property("architecture", windowsPlayerBridgeArch)
+    inputs.property("compiler", windowsClang ?: "msvc")
     if (windowsWebView2IncludeDir.exists()) {
         inputs.dir(windowsWebView2IncludeDir)
     }
@@ -887,10 +919,75 @@ val buildWindowsPlayerBridge = tasks.register<Exec>("buildWindowsPlayerBridge") 
         inputs.file(windowsWebView2LoaderLib)
     }
     outputs.file(windowsPlayerBridgeOutput)
-    outputs.file(windowsPlayerBridgeImportLib)
-    outputs.file(windowsPlayerBridgePdb)
-    onlyIf { !windowsPlayerBridgeOutput.get().asFile.exists() }
     commandLine(windowsPlayerBridgeCommand)
+}
+
+// A filename alone cannot distinguish an x64 DLL from an ARM64 DLL. Refuse a
+// mixed-architecture package before shipping a launcher that cannot load it.
+fun requireWindowsPeArchitecture(file: File) {
+    require(file.isFile) { "Required Windows $windowsPlayerBridgeArch library is missing: $file" }
+    RandomAccessFile(file, "r").use { input ->
+        require(input.length() >= 64 && input.readUnsignedShort() == 0x4d5a) { "Not a PE binary: $file" }
+        input.seek(60)
+        val peOffset = Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
+        require(peOffset <= input.length() - 6) { "Invalid PE header: $file" }
+        input.seek(peOffset)
+        require(input.readInt() == 0x50450000) { "Invalid PE signature: $file" }
+        val machine = JavaShort.reverseBytes(input.readShort()).toInt() and 0xffff
+        val expected = if (windowsPlayerBridgeArch == "arm64") 0xaa64 else 0x8664
+        require(machine == expected) {
+            "Wrong architecture in $file: PE machine 0x${machine.toString(16)}, expected $windowsPlayerBridgeArch"
+        }
+    }
+}
+
+val validateWindowsNativeLibraries = tasks.register("validateWindowsNativeLibraries") {
+    enabled = isWindowsHost
+    notCompatibleWithConfigurationCache("Validates host-local Windows native libraries.")
+    dependsOn(buildWindowsPlayerBridge)
+    doLast {
+        val mpv = windowsLibmpvDll ?: error("Supply -Pnuvio.windows.libmpv.runtimeDir with $windowsPlayerBridgeArch libmpv DLLs")
+        listOf(windowsPlayerBridgeOutput.get().asFile, windowsWebView2LoaderDll, windowsEngineDll, mpv)
+            .plus(windowsCppRuntimeDlls)
+            .plus(windowsLibmpvRuntimeDir?.listFiles { f -> f.extension.equals("dll", true) }.orEmpty())
+            .forEach(::requireWindowsPeArchitecture)
+        windowsQuickJsDll?.let(::requireWindowsPeArchitecture)
+        require(windowsPlayerBridgeArch != "arm64" || windowsQuickJsDll != null) {
+            "Windows ARM64 needs a matching QuickJS JNI library: -Pnuvio.windows.quickjs.dll=/path/to/libquickjs.dll"
+        }
+    }
+}
+
+// Stage a portable distribution independently of Compose's installer task.
+// A small manifest JAR supplies the exact resolved application classpath.
+tasks.register<Sync>("stageWindowsArm64Portable") {
+    group = "distribution"
+    description = "Stages the native Windows ARM64 app and its resolved JVM dependencies."
+    notCompatibleWithConfigurationCache("Writes the portable launch manifest after staging dependencies.")
+    dependsOn("desktopJar", "createRuntimeImage", validateWindowsNativeLibraries)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(configurations.named("desktopRuntimeClasspath")) {
+        eachFile {
+            if (file.isFile && file.extension == "jar") {
+                val hash = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                    .take(12).joinToString("") { "%02x".format(it) }
+                name = "${file.nameWithoutExtension}-$hash.jar"
+            }
+        }
+    }
+    from(tasks.named<Jar>("desktopJar").flatMap { it.archiveFile })
+    into(layout.buildDirectory.dir("windows-arm64/input"))
+    doLast {
+        require(isWindowsHost && windowsPlayerBridgeArch == "arm64") { "Use an ARM64 Windows JDK." }
+        val manifest = Manifest().apply {
+            mainAttributes.putValue("Manifest-Version", "1.0")
+            mainAttributes.putValue("Main-Class", "com.nuvio.app.MainKt")
+            mainAttributes.putValue("Class-Path", destinationDir.listFiles().orEmpty()
+                .filter { it.extension == "jar" && it.name != "nuvio-launcher.jar" }
+                .sortedBy(File::getName).joinToString(" ") { it.name })
+        }
+        JarOutputStream(destinationDir.resolve("nuvio-launcher.jar").outputStream(), manifest).use { }
+    }
 }
 
 val prepareWindowsPlayerRuntime = tasks.register<Sync>("prepareWindowsPlayerRuntime") {
@@ -961,15 +1058,21 @@ val prepareMacosPlayerAppResources = tasks.register<Sync>("prepareMacosPlayerApp
 
 tasks.withType<Jar>().configureEach {
     if (isWindowsHost && name == "desktopJar") {
-        dependsOn(buildWindowsPlayerBridge, prepareWindowsPlayerRuntime, generateWindowsPlayerRuntimeIndex)
+        dependsOn(validateWindowsNativeLibraries, prepareWindowsPlayerRuntime, generateWindowsPlayerRuntimeIndex)
         from(windowsPlayerBridgeOutput) {
             into("native/windows")
         }
         from(windowsPlayerRuntimeOutput) {
             into("native/windows")
         }
-        from(layout.projectDirectory.file("src/desktopMain/native/windows/engine/nuvio_engine.dll")) {
+        from(windowsEngineDll) {
             into("native/windows")
+        }
+        windowsQuickJsDll?.let { dll ->
+            from(dll) {
+                into("jni/windows_${if (windowsPlayerBridgeArch == "arm64") "aarch64" else "x64"}")
+                rename { "libquickjs.dll" }
+            }
         }
     }
     if (isLinuxHost && name == "desktopJar") {
@@ -990,6 +1093,16 @@ tasks.matching { it.name == "prepareAppResources" }.configureEach {
 }
 
 if (isWindowsHost) {
+    windowsQuickJsDll?.let { dll ->
+        tasks.withType<JavaExec>().configureEach {
+            systemProperty("com.dokar.quickjs.library.path", dll.parentFile.absolutePath)
+            systemProperty("com.dokar.quickjs.library.name", dll.name)
+        }
+        tasks.withType<Test>().configureEach {
+            systemProperty("com.dokar.quickjs.library.path", dll.parentFile.absolutePath)
+            systemProperty("com.dokar.quickjs.library.name", dll.name)
+        }
+    }
     val desktopNativePlayerTasks = setOf(
         "run",
         "runRelease",

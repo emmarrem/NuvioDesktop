@@ -22,6 +22,8 @@ node_modules/
 logs/
 analysis/
 Docs
+!docs/
+!docs/windows-arm64.md
 SUPPORTER_COSMETICS.md
 supabase/migrations/
 keystore/
@@ -33,6 +35,8 @@ AGENTS.md
 
 PERFORMANCE_FINDINGS.md
 scripts/*
+!scripts/windows/
+!scripts/windows/**
 !scripts/sign-ios-device-app.py
 iosApp/Configuration/DeviceSigning.local.json
 

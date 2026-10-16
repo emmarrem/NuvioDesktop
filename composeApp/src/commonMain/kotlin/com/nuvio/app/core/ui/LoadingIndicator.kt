@@ -74,7 +74,7 @@ fun NuvioLoadingIndicator(
 
 @Composable
 internal fun rememberLoadingIndicatorFrame(active: Boolean): State<Float> =
-    if (active) {
+    if (active && LocalWindowActive.current) {
         rememberInfiniteTransition(label = "loading_indicator").animateFloat(
             initialValue = 0f,
             targetValue = 60f,

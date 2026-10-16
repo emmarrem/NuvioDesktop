@@ -43,6 +43,8 @@ On Windows PowerShell:
 
 ```powershell
 .\gradlew.bat :composeApp:run
+
+For a dedicated native Windows ARM64 build, see [Windows ARM64](docs/windows-arm64.md).
 ```
 
 ### Package the app

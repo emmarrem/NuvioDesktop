@@ -248,14 +248,23 @@ internal object NativePlayerBridge {
             File("composeApp/build/native/$platformDir"),
             File("build/native/$platformDir"),
         )
-        val candidates = roots.map { it.resolve(libraryName) } + roots.flatMap { root ->
+        val candidates = roots.flatMap { root ->
             architectureDirectories.map { architecture -> root.resolve(architecture).resolve(libraryName) }
+        } + if (platformDir == "windows" && architectureDirectories.firstOrNull() == "arm64") {
+            emptyList()
+        } else {
+            roots.map { it.resolve(libraryName) }
         }
         return candidates.firstOrNull { it.exists() }
     }
 
     private fun nativeArchitectureDirectoryNames(platformDir: String): List<String> =
         when (platformDir) {
+            "windows" -> when (System.getProperty("os.arch").lowercase()) {
+                "aarch64", "arm64" -> listOf("arm64", "aarch64")
+                "amd64", "x64", "x86_64" -> listOf("x64")
+                else -> emptyList()
+            }
             "macos" -> when (System.getProperty("os.arch").lowercase()) {
                 "aarch64", "arm64" -> listOf("arm64", "aarch64")
                 "amd64", "x64", "x86_64" -> listOf("x86_64")
@@ -271,7 +280,11 @@ internal object NativePlayerBridge {
         )
         val runtimeDirs = runtimeRoots.flatMap { root ->
             nativeArchitectureDirectoryNames(platformDir).map(root::resolve)
-        } + runtimeRoots
+        } + if (platformDir == "windows" && nativeArchitectureDirectoryNames(platformDir).firstOrNull() == "arm64") {
+            emptyList()
+        } else {
+            runtimeRoots
+        }
         runtimeDirs.firstOrNull(File::isDirectory)
             ?.listFiles { file -> file.isFile }
             ?.forEach { runtimeFile ->
