@@ -9,6 +9,9 @@ on:
     paths:
       - '.github/workflows/build-windows-arm64.yml'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-windows-arm64:
     runs-on: windows-11-arm
@@ -16,7 +19,7 @@ jobs:
       - name: Checkout NuvioDesktop source
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
       - name: Set up JDK 21 (Windows ARM64)
         uses: actions/setup-java@v4
@@ -25,6 +28,24 @@ jobs:
           java-version: '21'
           architecture: 'aarch64'
           cache: 'gradle'
+
+      - name: Ensure Android SDK licenses for KMP configuration
+        shell: pwsh
+        run: |
+          $sdkDir = if ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME)) { $env:ANDROID_HOME } else { Join-Path $env:RUNNER_TEMP "android-sdk" }
+          $licensesDir = Join-Path $sdkDir "licenses"
+          New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
+          $licenseHashes = @(
+            "8933bad161af4178b1185d1a37fbf41ea5269c55",
+            "d56f5187479451eabf01fb78af6dfcb131a6481e",
+            "24333f8a63b6825ea9c5514f83c2829b004d1fee",
+            "84831b9409646a918e30573bab4c9c91346d8abd"
+          ) -join "`n"
+          Set-Content -Path (Join-Path $licensesDir "android-sdk-license") -Value $licenseHashes -Encoding ASCII
+          echo "ANDROID_HOME=$sdkDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "ANDROID_SDK_ROOT=$sdkDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $escapedSdk = $sdkDir -replace '\', '\\'
+          Set-Content -Path "local.properties" -Value "sdk.dir=$escapedSdk" -Encoding UTF8
 
       - name: Set up WiX Toolset v3 (required by jpackage for MSI)
         shell: pwsh
@@ -36,7 +57,7 @@ jobs:
           Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
           echo "$wixDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Switch hardcoded Windows x64 targets to ARM64
+      - name: Switch any hardcoded Windows x64 targets to ARM64
         shell: pwsh
         run: |
           Get-ChildItem -Recurse -Filter "*.gradle.kts" | ForEach-Object {
@@ -48,12 +69,19 @@ jobs:
             }
           }
 
-      - name: Package Windows ARM64 MSI Installer
+      - name: Package Windows ARM64 Installer
         shell: pwsh
-        run: .\gradlew.bat :composeApp:packageReleaseMsi --rerun-tasks
+        run: |
+          .\gradlew.bat :composeApp:packageReleaseMsi --rerun-tasks --no-daemon
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "MSI packaging encountered an issue; building portable Windows ARM64 app image instead..."
+            .\gradlew.bat :composeApp:createReleaseDistributable --no-daemon
+          }
 
-      - name: Upload Windows ARM64 MSI Artifact
+      - name: Upload Windows ARM64 Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nuvio-Windows-arm64-msi
-          path: composeApp/build/compose/binaries/**/*.msi
+          name: Nuvio-Windows-arm64
+          path: |
+            composeApp/build/compose/binaries/**/*.msi
+            composeApp/build/compose/binaries/main-release/app/**
