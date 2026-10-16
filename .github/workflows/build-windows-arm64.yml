@@ -41,7 +41,6 @@ jobs:
           repository: NuvioMedia/NuvioDesktop
           ref: ${{ steps.release.outputs.tag }}
           path: source
-          persist-credentials: false
       - name: Apply versioned ARM64 port to selected release
         run: ./scripts/windows/apply-release-port.ps1 -SourceDirectory source
       - name: Configure optional custom client
