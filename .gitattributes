@@ -1,2 +1,3 @@
 composeApp/src/desktopMain/native/windows/runtime/libmpv-2.dll filter=lfs diff=lfs merge=lfs -text
+ports/windows-arm64/*.patch text eol=lf
 composeApp/src/desktopMain/native/macos/runtime/**/*.dylib filter=lfs diff=lfs merge=lfs -text
