@@ -1,5 +1,5 @@
 diff --git a/composeApp/build.gradle.kts b/composeApp/build.gradle.kts
-index 0f88456f78b133dce2d7d999161703c896cfdebe..e471c7c5b1dbfa282374860502dcd075bed9c6d1 100644
+index 0f88456f78b133dce2d7d999161703c896cfdebe..57984beba99a2134b85e5f8621412ef2f1f600a2 100644
 --- a/composeApp/build.gradle.kts
 +++ b/composeApp/build.gradle.kts
 @@ -1,5 +1,6 @@
@@ -243,6 +243,21 @@ index 0f88456f78b133dce2d7d999161703c896cfdebe..e471c7c5b1dbfa282374860502dcd075
      val desktopNativePlayerTasks = setOf(
          "run",
          "runRelease",
+@@ -1693,3 +1806,14 @@ configurations.all {
+     exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
+     exclude(group = "androidx.media3", module = "media3-extractor")
+ }
++
++// KMP assigns its test classpath during target configuration. Add the packaged
++// native resources afterwards so integration tests exercise the shipped DLLs.
++afterEvaluate {
++    if (isWindowsHost) {
++        tasks.named<Test>("desktopTest") {
++            dependsOn("desktopJar")
++            classpath += files(tasks.named<Jar>("desktopJar").flatMap { it.archiveFile })
++        }
++    }
++}
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
 index 0b1f0b50ac4457770869bd38f043ae3307ea3de0..6993d9ab08d6a99c0bd5084c8a2b29ade2eafbb9 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt

@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-arm64-${{ github.ref }}
-  cancel-in-progress: false
+  group: windows-arm64-${{ github.ref }}-${{ inputs.release_tag || 'latest' }}
+  cancel-in-progress: true
 
 jobs:
   build:

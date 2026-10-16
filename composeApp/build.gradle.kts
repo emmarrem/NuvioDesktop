@@ -1806,3 +1806,14 @@ configurations.all {
     exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
     exclude(group = "androidx.media3", module = "media3-extractor")
 }
+
+// KMP assigns its test classpath during target configuration. Add the packaged
+// native resources afterwards so integration tests exercise the shipped DLLs.
+afterEvaluate {
+    if (isWindowsHost) {
+        tasks.named<Test>("desktopTest") {
+            dependsOn("desktopJar")
+            classpath += files(tasks.named<Jar>("desktopJar").flatMap { it.archiveFile })
+        }
+    }
+}
