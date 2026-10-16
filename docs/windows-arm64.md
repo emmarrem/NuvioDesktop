@@ -90,7 +90,7 @@ depends on the content, integrations and GPU driver and has not been measured.
 | Native compiler | LLVM-MinGW 20261006 UCRT, ARM64 host and target |
 | WebView2 SDK | Microsoft.Web.WebView2 1.0.4078.44 |
 | libmpv | shinchiro 20261016, mpv a2cd83c56d, aarch64 dev package |
-| Nuvio Engine | 0.1.5, 99a18601fa12858cc8c62576dc72b87edbd81b9a |
+| Nuvio Engine | Matches selected source: 0.1.4 at ddb383ba46bafb9970baf0bc23f51de786f58a4c, or 0.1.5 at 99a18601fa12858cc8c62576dc72b87edbd81b9a |
 | libtorrent | 2.0.12, 740a0b9aeabe00e762cc0efe4a0f27593db2550b, with engine's upstream patches |
 | OpenSSL | MSYS2 clangarm64 3.6.5-1, static libraries |
 | QuickJS Kotlin JNI | 1.0.15, a081755bcdb18ee6afa7ffee25b8fa976f06d31f |

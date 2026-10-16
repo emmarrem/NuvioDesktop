@@ -18,9 +18,17 @@ if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') {
 }
 $gradleSource = Get-Content "$repo/composeApp/build.gradle.kts" -Raw
 $versionCatalog = Get-Content "$repo/gradle/libs.versions.toml" -Raw
-if ($gradleSource -notmatch 'nuvio-engine-jvm-0\.1\.5\.jar' -or $versionCatalog -notmatch 'quickjsKt\s*=\s*"1\.0\.15"') {
+$engineMatch = [regex]::Match($gradleSource, 'nuvio-engine-jvm-(0\.1\.[45])\.jar')
+if (-not $engineMatch.Success -or $versionCatalog -notmatch 'quickjsKt\s*=\s*"1\.0\.15"') {
     throw 'Upstream changed its native engine or QuickJS ABI. Update the pinned native sources in this port before building this release.'
 }
+$engineVersion = $engineMatch.Groups[1].Value
+$engineCommit = if ($engineVersion -eq '0.1.4') { 'ddb383ba46bafb9970baf0bc23f51de786f58a4c' } else { '99a18601fa12858cc8c62576dc72b87edbd81b9a' }
+$engineSuffix = if ($engineVersion -eq '0.1.5') { '' } else { "-$engineVersion" }
+$engineSource = "$work/nuvio-engine$engineSuffix"
+$engineBuild = "$work/engine-build$engineSuffix"
+$torrentSource = "$work/libtorrent$engineSuffix"
+Write-Output "Building matching native engine $engineVersion ($engineCommit)."
 
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
@@ -95,25 +103,25 @@ $env:PATH = "$llvm/bin;$ninja;$([IO.Path]::GetDirectoryName($cmake));$env:PATH"
 $clang = "$llvm/bin/aarch64-w64-mingw32-clang.exe"
 $clangxx = "$llvm/bin/aarch64-w64-mingw32-clang++.exe"
 
-Get-Source "$work/nuvio-engine" 'https://github.com/NuvioMedia/nuvio-engine.git' '99a18601fa12858cc8c62576dc72b87edbd81b9a'
-Get-Source "$work/libtorrent" 'https://github.com/arvidn/libtorrent.git' '740a0b9aeabe00e762cc0efe4a0f27593db2550b'
-Get-Source "$work/libtorrent/deps/try_signal" 'https://github.com/arvidn/try_signal.git' '105cce59972f925a33aa6b1c3109e4cd3caf583d'
+Get-Source $engineSource 'https://github.com/NuvioMedia/nuvio-engine.git' $engineCommit
+Get-Source $torrentSource 'https://github.com/arvidn/libtorrent.git' '740a0b9aeabe00e762cc0efe4a0f27593db2550b'
+Get-Source "$torrentSource/deps/try_signal" 'https://github.com/arvidn/try_signal.git' '105cce59972f925a33aa6b1c3109e4cd3caf583d'
 Get-Source "$work/quickjs-kt" 'https://github.com/dokar3/quickjs-kt.git' 'a081755bcdb18ee6afa7ffee25b8fa976f06d31f'
 Get-Source "$work/quickjs-source" 'https://github.com/bellard/quickjs.git' '04be246001599f5995fa2f2d8c91a0f198d3f34c'
 Get-Source "$work/c-vector" 'https://github.com/eteran/c-vector.git' '774773d4cb1e66dd736e90e7f482d4f22af464c6'
 
 $openssl = "$work/toolchains/openssl/clangarm64".Replace('\', '/')
 Invoke-Checked $cmake @(
-    '-S', "$work/nuvio-engine", '-B', "$work/engine-build", '-G', 'Ninja',
+    '-S', $engineSource, '-B', $engineBuild, '-G', 'Ninja',
     "-DCMAKE_C_COMPILER=$clang", "-DCMAKE_CXX_COMPILER=$clangxx", '-DCMAKE_BUILD_TYPE=Release',
     '-DNUVIO_ENGINE_BUILD_SHARED=ON', '-DNUVIO_ENGINE_ENABLE_LIBTORRENT=ON', '-DNUVIO_ENGINE_BUILD_TESTS=ON',
     '-DCMAKE_SHARED_LINKER_FLAGS=-static -lws2_32 -lcrypt32 -lbcrypt',
     "-DOPENSSL_ROOT_DIR=$openssl", '-DOPENSSL_USE_STATIC_LIBS=TRUE',
-    "-DFETCHCONTENT_SOURCE_DIR_NUVIO_LIBTORRENT=$($work.Replace('\','/'))/libtorrent"
+    "-DFETCHCONTENT_SOURCE_DIR_NUVIO_LIBTORRENT=$($torrentSource.Replace('\','/'))"
 )
-Invoke-Checked $cmake @('--build', "$work/engine-build", '--parallel', '4')
-$env:PATH = "$work/engine-build;$llvm/aarch64-w64-mingw32/bin;$env:PATH"
-Invoke-Checked "$work/engine-build/tests/nuvio_engine_c_api_smoke.exe" @()
+Invoke-Checked $cmake @('--build', $engineBuild, '--parallel', '4')
+$env:PATH = "$engineBuild;$llvm/aarch64-w64-mingw32/bin;$env:PATH"
+Invoke-Checked "$engineBuild/tests/nuvio_engine_c_api_smoke.exe" @()
 
 $native = "$work/quickjs-kt/quickjs/native"
 $quick = "$work/quickjs-source"
@@ -142,13 +150,13 @@ if ($LocalProperties) {
 Push-Location $repo
 try {
     $testTasks = if ($RunTests) {
-        @(':composeApp:desktopTest', '--tests', '*WindowsScrollSettingsTest', '--tests', '*WindowActivityTest', '--tests', '*Arm64UpdateAssetTest', '--tests', '*PluginRuntimeDesktopTest')
+        @(':composeApp:desktopTest', '--tests', '*WindowsScrollSettingsTest', '--tests', '*WindowActivityTest', '--tests', '*Arm64UpdateAssetTest', '--tests', '*PluginRuntimeDesktopTest', '--tests', '*DesktopEngineTest.bundledLibraryLoadsAndCreatesEngine*')
     } else { @() }
     $gradleArguments = @(
         ':composeApp:stageWindowsArm64Portable',
         "-Pnuvio.windows.clang.path=$clangxx", "-Pnuvio.webview2.dir=$webview",
         "-Pnuvio.windows.libmpv.runtimeDir=$work/native-arm64/mpv",
-        "-Pnuvio.windows.engine.dll=$work/engine-build/nuvio_engine.dll",
+        "-Pnuvio.windows.engine.dll=$engineBuild/nuvio_engine.dll",
         "-Pnuvio.windows.quickjs.dll=$work/native-arm64/libquickjs.dll",
         '-Pcompose.desktop.packaging.checkJdkVendor=false', '-Pkotlin.compiler.execution.strategy=in-process',
         '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8', '--max-workers=4', '--no-configuration-cache', '--no-daemon'
@@ -205,9 +213,9 @@ $licenses = "$app/licenses"
 New-Item -ItemType Directory -Force $licenses | Out-Null
 $licenseFiles = @{
     "$repo/LICENSE" = 'Nuvio-GPL-3.txt'
-    "$work/nuvio-engine/LICENSE" = 'Nuvio-Engine-GPL-3.txt'
-    "$work/nuvio-engine/THIRD_PARTY_NOTICES.md" = 'Nuvio-Engine-Third-Party.md'
-    "$work/libtorrent/LICENSE" = 'libtorrent-LICENSE.txt'
+    "$engineSource/LICENSE" = 'Nuvio-Engine-GPL-3.txt'
+    "$engineSource/THIRD_PARTY_NOTICES.md" = 'Nuvio-Engine-Third-Party.md'
+    "$torrentSource/LICENSE" = 'libtorrent-LICENSE.txt'
     "$work/quickjs-kt/LICENSE.txt" = 'QuickJS-Kotlin-Apache-2.txt'
     "$work/quickjs-source/LICENSE" = 'QuickJS-MIT.txt'
     "$work/c-vector/LICENSE" = 'c-vector-MIT.txt'
