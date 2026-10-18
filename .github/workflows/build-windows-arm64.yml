@@ -1,7 +1,10 @@
 name: Build Windows ARM64
 
 on:
+  release:
+    types: [published]
   push:
+    branches: [Dev]
     paths:
       - .github/workflows/build-windows-arm64.yml
       - scripts/windows/**
@@ -18,11 +21,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-arm64-${{ github.ref }}-${{ inputs.release_tag || 'latest' }}
+  group: windows-arm64-${{ github.event_name }}-${{ github.ref }}-${{ inputs.release_tag || 'latest' }}
   cancel-in-progress: true
 
 jobs:
   build:
+    permissions:
+      contents: write
     runs-on: windows-11-arm
     timeout-minutes: 120
     defaults:
@@ -30,12 +35,17 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - name: Resolve official release and verify client installer
         id: release
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || 'latest' }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || 'latest' }}
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/windows/resolve-upstream-release.ps1 -Tag $env:RELEASE_TAG -OutputDirectory release-input
+        run: |
+          # A fork release may use 0.1.30-alpha-arm64.1 while its source stays 0.1.30-alpha.
+          $upstreamTag = $env:RELEASE_TAG -replace '-arm64(?:\.\d+)?$', ''
+          ./scripts/windows/resolve-upstream-release.ps1 -Tag $upstreamTag -OutputDirectory release-input
       - uses: actions/checkout@v6
         with:
           repository: NuvioMedia/NuvioDesktop
@@ -67,7 +77,7 @@ jobs:
           $record = [ordered]@{
             release = $env:RELEASE_TAG
             upstreamCommit = (git -C source rev-parse HEAD)
-            portCommit = $env:GITHUB_SHA
+            portCommit = (git rev-parse HEAD)
             architecture = 'arm64'
             signed = $false
           } | ConvertTo-Json
@@ -82,6 +92,13 @@ jobs:
             build/windows-arm64/build-info.json
           if-no-files-found: error
           retention-days: 30
+      - name: Attach ARM64 files to the published release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: ./scripts/windows/upload-release-assets.ps1 -Repository $env:GITHUB_REPOSITORY -ReleaseId $env:RELEASE_ID -Tag $env:RELEASE_TAG -Directory build/windows-arm64
       - name: Remove temporary client configuration
         if: always()
         run: |

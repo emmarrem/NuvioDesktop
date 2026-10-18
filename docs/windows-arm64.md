@@ -59,14 +59,37 @@ No initial secret is required. Optionally set the repository Actions secret
 No signing or Sentry upload credentials are required.
 
 The action uploads a portable ZIP, its SHA256 and `build-info.json` with the exact
-upstream and port revisions. It does not publish a release or enable an x64
-auto-update. Artifacts are retained for 30 days; save the ZIP locally.
+upstream and port revisions. Manual runs do not publish a release or enable an
+x64 auto-update. Published-release runs also attach these files to that release.
+Actions artifacts are retained for 30 days; save the ZIP locally.
 
 New releases work while the patch and native ABI remain compatible. If upstream
 changes conflicting source, the engine ABI or QuickJS version, the action stops
 with an explicit error. Update the patch/native pins before retrying; changing
 architecture labels alone cannot supply missing native binaries. To refresh the
 patch after editing the port, use `scripts/windows/update-port-patch.ps1`.
+
+## Publish a Windows ARM64 GitHub release
+
+The inherited **Update Sideload Source** workflow maintains upstream's iOS IPA
+catalog. It runs only in `NuvioMedia/NuvioDesktop`; Windows releases in this fork
+do not need an IPA. **Build Desktop Release** is also upstream's multi-platform
+release process. Use **Build Windows ARM64** for this fork.
+
+For a downloadable GitHub release, create a **new** tag such as
+`0.1.30-alpha-arm64.1` targeting the current **Dev** branch, then publish its release.
+The ARM64 workflow removes the `-arm64.1` suffix, builds official `0.1.30-alpha`,
+and attaches its portable ZIP, checksum and `build-info.json` to your release.
+Wait for the workflow to finish before downloading the assets.
+
+Use a fresh tag pointing at the updated branch: an older tag can still execute
+older workflows. Do not move an existing published tag. If you only want a ZIP,
+run **Build Windows ARM64** manually with `latest` or an official tag and download
+its Actions artifact. Manual builds do not create or publish a release.
+
+Uploads never overwrite a different existing asset. For a rebuilt release, use
+a new suffix such as `-arm64.2`. Publishing a release does not create an MSI;
+this port currently distributes an unsigned portable ZIP.
 
 ## Scrolling and idle work
 
